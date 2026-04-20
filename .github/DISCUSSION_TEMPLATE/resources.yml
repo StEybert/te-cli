@@ -1,0 +1,58 @@
+title: "[Resource]: "
+labels: ["resource"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Share a webinar, blog post, video, tutorial, or conference talk related to the Tabular Editor CLI.
+
+        Both the Tabular Editor team and community members are welcome to post. Please check [existing resources](../discussions/categories/resources) before adding — if one already covers the topic, comment on it instead.
+
+  - type: dropdown
+    id: type
+    attributes:
+      label: Resource type
+      options:
+        - Upcoming webinar
+        - Past webinar / recording
+        - Blog post
+        - Video
+        - Tutorial
+        - Conference talk
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: link
+    attributes:
+      label: Link
+      description: URL to the resource. For upcoming events, link to the registration or event page.
+      placeholder: "https://..."
+    validations:
+      required: true
+
+  - type: input
+    id: date
+    attributes:
+      label: Date
+      description: Event date for upcoming items; publish date for past content (YYYY-MM-DD).
+      placeholder: "2026-05-14"
+    validations:
+      required: false
+
+  - type: input
+    id: author
+    attributes:
+      label: Speaker / Author
+      placeholder: "Jane Doe (@janedoe)"
+    validations:
+      required: false
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Short summary
+      description: Two or three sentences — what's covered and who it's for.
+    validations:
+      required: true

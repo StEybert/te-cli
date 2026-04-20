@@ -1,0 +1,53 @@
+title: "[Announcement]: "
+labels: ["announcement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Official announcement from the Tabular Editor team — new preview release, breaking change, expiry reminder, or policy update.
+
+  - type: dropdown
+    id: type
+    attributes:
+      label: Announcement type
+      options:
+        - New preview release
+        - Breaking change
+        - Preview expiry reminder
+        - Policy / licensing update
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: CLI version (if applicable)
+      description: Only relevant for release announcements.
+      placeholder: "0.4.2"
+    validations:
+      required: false
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One or two sentences — the headline.
+    validations:
+      required: true
+
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: "Markdown supported. For releases, typical sections are: What's new / What's changed / What's breaking / What's next."
+    validations:
+      required: true
+
+  - type: textarea
+    id: links
+    attributes:
+      label: Related links
+      description: Download URL, release notes, docs page, related issues, etc.
+    validations:
+      required: false
