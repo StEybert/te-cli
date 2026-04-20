@@ -1,0 +1,48 @@
+title: "[Q&A]: "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ask a "how do I..." question about the Tabular Editor CLI.
+
+        **Please check first:**
+        - [Command Reference](https://docs.tabulareditor.com/features/te-cli/te-cli-commands.html) and the built-in `te <command> --help`.
+        - [Existing Q&A discussions](../discussions/categories/q-a).
+
+  - type: input
+    id: version
+    attributes:
+      label: CLI version
+      description: Output of `te --version`.
+      placeholder: "te 0.4.1"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+    validations:
+      required: true
+
+  - type: textarea
+    id: question
+    attributes:
+      label: What are you trying to do?
+      description: Describe the goal, not just the command you ran. What's the bigger picture?
+    validations:
+      required: true
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What have you tried so far?
+      description: Commands you ran, docs you checked, workarounds you attempted. Redact secrets.
+      render: shell
+    validations:
+      required: false

@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Ask a question or get help
+    url: ../discussions/categories/q-a
+    about: Use Discussions > Q&A for "how do I..." questions and usage help.
+  - name: Share an idea or feedback
+    url: ../discussions/categories/ideas
+    about: Open-ended feedback and ideas belong in Discussions > Ideas. If you have a concrete feature proposal, open a Feature request issue instead.
+  - name: Documentation
+    url: https://docs.tabulareditor.com/features/te-cli/te-cli.html
+    about: Browse the Tabular Editor CLI documentation before filing an issue.

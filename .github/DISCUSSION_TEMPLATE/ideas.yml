@@ -1,0 +1,27 @@
+title: "[Idea]: "
+labels: ["idea"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Share early-stage feedback or an idea for the Tabular Editor CLI.
+
+        Use this category for open-ended discussion. If your idea is concrete enough to act on, please open a **Feature request** issue instead.
+
+        Please search [existing ideas](../discussions/categories/ideas) and 👍 them if you see a match.
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea
+      description: What's on your mind? No structure required — think out loud.
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Why does it matter to you?
+      description: Context helps us prioritize. What would change in your workflow if this existed?
+    validations:
+      required: false

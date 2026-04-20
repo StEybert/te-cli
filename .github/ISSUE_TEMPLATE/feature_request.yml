@@ -1,0 +1,67 @@
+name: Feature request
+description: Suggest a new command, flag, or capability for the Tabular Editor CLI.
+title: "[Feature]: "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for sharing a feature idea!
+
+        Please search [existing issues](../issues?q=is%3Aissue) and [Discussions > Ideas](../discussions/categories/ideas) first — if a similar proposal already exists, please 👍 it and add your use case as a comment instead of opening a new issue.
+
+  - type: checkboxes
+    id: prereqs
+    attributes:
+      label: Pre-flight checks
+      options:
+        - label: I have searched existing issues and discussions and could not find a duplicate.
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / use case
+      description: What are you trying to accomplish? What's painful or impossible today?
+      placeholder: "When I run `te ...`, I can't ... because ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What do you think the CLI should do? Sketch a command shape, flag name, or behavior if you have one in mind.
+      placeholder: |
+        Example:
+        `te deploy ./model --only Roles,Perspectives` would deploy only roles and perspectives, skipping everything else.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches you thought about, or workarounds you're using today.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: audience
+    attributes:
+      label: Who would use this?
+      multiple: true
+      options:
+        - Humans (interactive use)
+        - AI agents
+        - CI/CD pipelines
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Links to related issues, prior art in other tools (TE2 CLI, TE3 UI, other Microsoft tools), or anything else that helps us understand the ask.
+    validations:
+      required: false
