@@ -1,20 +1,23 @@
 # Tabular Editor CLI (te)
 
+> [!NOTE]
+> 📢 **Read the [announcement blog post](https://tabulareditor.com/blog/introducing-the-tabular-editor-cli-limited-public-preview)** to learn what the CLI is, why we built it, and what's coming next.
+
 Public home for **bug reports, feature requests, and discussions** about the [Tabular Editor CLI](https://docs.tabulareditor.com/features/te-cli/te-cli.html) (`te`) — a cross-platform command-line tool for Power BI and Analysis Services semantic models.
 
 > [!IMPORTANT]
 > The Tabular Editor CLI is in **Limited Public Preview**. It is offered for evaluation with a Tabular Editor account; no license is required during preview. Commands, flags, and outputs may change before general availability. **The preview build stops functioning after 2026-09-30.** We recommend against using the CLI in production CI/CD pipelines during preview.
 
-**Download here:** https://tabulareditor.com/download-tabular-editor-cli (requires account creation)
+**📥 Download:** https://tabulareditor.com/download-tabular-editor-cli (requires account creation)
 
-## What this repository is
+## 📦 What this repository is
 
 - **[Issues](../../issues)** — report bugs, request features, and track known problems.
 - **[Discussions](../../discussions)** — ask questions, share feedback, and swap usage tips with other early adopters.
 
 This repository does **not** host the Tabular Editor CLI source code. It exists to provide a public place for feedback and issue tracking during preview.
 
-## Before you open an issue
+## 🐛 Before you open an issue
 
 Please take a minute to do these two things — it saves everyone time and helps your report get triaged faster.
 
@@ -28,7 +31,7 @@ If you can't find a match, open a new issue and include:
 - The exact command you ran and the output (redact any secrets first)
 - What you expected to happen vs. what actually happened
 
-## Security
+## 🔒 Security
 
 If you believe you have discovered a security vulnerability, please **do not open a public issue or discussion**.
 
@@ -36,7 +39,7 @@ See our [Security Policy](SECURITY.md) for responsible disclosure instructions a
 
 You can also visit our Trust Center: https://trust.tabulareditor.com/
 
-## Documentation
+## 📚 Documentation
 
 Full documentation lives at <https://docs.tabulareditor.com/features/te-cli/te-cli.html>.
 
