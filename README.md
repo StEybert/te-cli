@@ -10,7 +10,7 @@ Public home for **bug reports, feature requests, and discussions** about the [Ta
 - **[Issues](../../issues)** — report bugs, request features, and track known problems.
 - **[Discussions](../../discussions)** — ask questions, share feedback, and swap usage tips with other early adopters.
 
-This repository does **not** host the CLI source code. It exists to give the community a public place to reach us during the preview.
+This repository does **not** host the Tabular Editor CLI source code. It exists to provide a public place for feedback and issue tracking during preview.
 
 ## Before you open an issue
 
@@ -25,6 +25,14 @@ If you can't find a match, open a new issue and include:
 - OS and architecture (e.g., Windows 11 x64, macOS 14 ARM64, Ubuntu 22.04 x64)
 - The exact command you ran and the output (redact any secrets first)
 - What you expected to happen vs. what actually happened
+
+## Security
+
+If you believe you have discovered a security vulnerability, please **do not open a public issue or discussion**.
+
+See our [Security Policy](SECURITY.md) for responsible disclosure instructions and contact details.
+
+You can also visit our Trust Center: https://trust.tabulareditor.com/
 
 ## Documentation
 
