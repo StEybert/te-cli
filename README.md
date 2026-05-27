@@ -1,7 +1,7 @@
 # Tabular Editor CLI (te)
 
 > [!NOTE]
-> 📢 **Read the [announcement blog post](https://tabulareditor.com/blog/introducing-the-tabular-editor-cli-limited-public-preview)** to learn what the CLI is, why we built it, and what's coming next.
+> 📢 **Read the [announcement blog post](https://tabulareditor.com/blog/introducing-the-tabular-editor-cli-limited-public-preview)** to learn what the CLI is, why we built it, and how to get started.
 
 Public home for **bug reports, feature requests, and discussions** about the [Tabular Editor CLI](https://docs.tabulareditor.com/features/te-cli/te-cli.html) (`te`) — a cross-platform command-line tool for Power BI and Analysis Services semantic models.
 
