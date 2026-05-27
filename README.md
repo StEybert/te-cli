@@ -15,7 +15,7 @@ Public home for **bug reports, feature requests, and discussions** about the [Ta
 - **[Issues](../../issues)** — report bugs, request features, and track known problems.
 - **[Discussions](../../discussions)** — ask questions, share feedback, and swap usage tips with other early adopters.
 
-This repository does **not** host the Tabular Editor CLI source code. It exists to provide a public place for feedback and issue tracking during preview.
+This repository does **not** host the Tabular Editor CLI source code or binaries. It exists to provide a public place for feedback and issue tracking during preview.
 
 ## 🐛 Before you open an issue
 
