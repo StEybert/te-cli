@@ -17,6 +17,10 @@ Public home for **bug reports, feature requests, and discussions** about the [Ta
 
 This repository does **not** host the Tabular Editor CLI source code or binaries. It exists to provide a public place for feedback and issue tracking during preview.
 
+## 🤖 AI agent skill
+
+This repo also ships an **AI agent skill** that teaches Claude, GitHub Copilot, and other AI coding agents how to use `te` productively. See [`skill/`](./skill/) for the file and per-agent install instructions.
+
 ## 🐛 Before you open an issue
 
 Please take a minute to do these two things — it saves everyone time and helps your report get triaged faster.
