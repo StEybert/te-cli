@@ -15,6 +15,7 @@ body:
         - Breaking change
         - Preview expiry reminder
         - Policy / licensing update
+        - Feature
         - Other
     validations:
       required: true
