@@ -39,92 +39,85 @@ To download:
 
 You'll move this file to a tool-specific location in the install steps below. To check what changed between versions before downloading a newer copy, see the [CHANGELOG](./CHANGELOG.md).
 
-## Install
+## Install for Claude Code
 
-There are two common installation **scopes** for every agent:
+Claude Code loads skills from a named folder under `.claude/skills/`. The `description` field is matched against your prompts, so the skill only loads when relevant - it costs no tokens when you're working on unrelated code.
 
-- **Project scope** - the skill is available only in a specific project or repository. Use this when not every project needs the `te` skill.
-- **User / global scope** - the skill is available in every project on your machine. Use this if you work with semantic models across many repos.
-
-### Claude Code
-
-Claude Code's [skills system](https://docs.claude.com/en/docs/claude-code/skills) auto-loads `SKILL.md` files from `.claude/skills/<name>/`. The skill's `description` field is matched against your prompts, so it only loads when relevant - no token cost when you're working on unrelated code.
-
-**Project scope** (skill loads only inside this project):
+**Project scope** - the skill loads only inside this project:
 
 1. In your project root, create the folder `.claude/skills/te-cli/`.
-2. Place the downloaded `SKILL.md` file inside that folder.
-3. Restart Claude Code.
+2. Place the downloaded `SKILL.md` inside that folder.
 
-The final path should be: `<your-project>/.claude/skills/te-cli/SKILL.md`.
+The final path is `<your-project>/.claude/skills/te-cli/SKILL.md`.
 
-**User scope** (skill loads in every project for the current user):
+**User scope** - the skill loads in every project for the current user:
 
-1. Create the folder `te-cli` inside your user-level Claude skills directory:
-   - **macOS / Linux**: `~/.claude/skills/te-cli/`
-   - **Windows**: `%USERPROFILE%\.claude\skills\te-cli\` (typically `C:\Users\<you>\.claude\skills\te-cli\`)
-2. Place the downloaded `SKILL.md` file inside that folder.
-3. Restart Claude Code.
+1. Create a `te-cli` folder inside your user-level Claude skills directory:
+   - **macOS / Linux:** `~/.claude/skills/te-cli/`
+   - **Windows:** `%USERPROFILE%\.claude\skills\te-cli\` (typically `C:\Users\<you>\.claude\skills\te-cli\`)
+2. Place the downloaded `SKILL.md` inside that folder.
 
-#### Verifying it loaded
+> [!NOTE]
+> Claude Code watches skill directories and picks up new or edited skills within the current session - no restart needed. The exception is creating a `.claude/skills/` directory that did not exist when the session started: restart Claude Code once so it begins watching the new directory.
 
-Inside a Claude Code session, type:
+### Verify it loaded
+
+Inside a Claude Code session, run:
 
 ```
 /skills
 ```
 
-You should see `te-cli` in the listed skills. If not, double-check the file path and frontmatter (the file should start with `---` and have `name: te-cli` on the second line), then restart Claude Code.
+You should see `te-cli` in the list. If it's missing, confirm the file path and that the file starts with `---` and has `name: te-cli` on the second line, then restart Claude Code.
 
-A quick functional smoke test:
+For a functional smoke test, ask:
 
 ```
-You> what does `te deploy --xmla` do?
+what does `te deploy --xmla` do?
 ```
 
-Claude should answer with the documented behavior (generates a TMSL/XMLA script to stdout instead of deploying), confirming the skill is loaded and being used.
+Claude answers with the documented behavior - it generates a TMSL/XMLA script to stdout instead of deploying - which confirms the skill is loaded and in use.
 
-### Claude.ai / Claude Desktop
+## Install for GitHub Copilot
 
-Claude.ai and Claude Desktop have a built-in **Skills** feature. You upload `SKILL.md` through the app's UI:
+GitHub Copilot in VS Code supports the Agent Skills open standard natively - the same `SKILL.md` format Claude Code and Codex use. This is the recommended approach because the skill loads only when relevant. For Copilot setups that predate Agent Skills, fall back to the always-on custom-instructions file below.
 
-1. Download `SKILL.md` (see [above](#downloading-the-skill-file)).
-2. Open Claude.ai (or Claude Desktop) and go to **Settings -> Capabilities -> Skills**.
-3. Click **Upload skill** and select the `SKILL.md` file you downloaded.
-4. The skill is now available in every conversation and loads automatically when you mention `te` or a related concept.
+### Agent Skills (VS Code)
 
-See Anthropic's [Skills documentation](https://docs.claude.com/en/docs/claude-code/skills) for the most current UI flow if the wording has changed.
+Place the skill in a named folder under a skills directory. The folder name must match the `name` field in the frontmatter, so use `te-cli`, and keep the YAML frontmatter intact.
 
-### GitHub Copilot
+- **Workspace scope:** `.github/skills/te-cli/SKILL.md` (Copilot also reads `.claude/skills/` and `.agents/skills/`).
+- **User scope:** `~/.copilot/skills/te-cli/SKILL.md` (Copilot also reads `~/.claude/skills/` and `~/.agents/skills/`).
 
-Copilot's custom instructions are **always-on** for the scope where they live - they're injected into every Copilot interaction. Two scopes are available.
+Type `/` in Copilot Chat to confirm `te-cli` appears as a slash command, or open the Agent Customizations editor with **Chat: Open Customizations** from the Command Palette.
 
-> [!WARNING]
-> Copilot loads custom instructions into **every** interaction, so the full skill (~900 lines) noticeably raises per-prompt token cost. If your work touches `te` only occasionally, prefer installing at **project** scope on the specific repo, or copy only the sections you actually need (e.g. just the command reference + gotchas).
 
-**Project scope** - one instructions file shared by everyone working in the repo:
+## Install for OpenAI Codex CLI
 
-1. Download `SKILL.md` (see [above](#downloading-the-skill-file)).
-2. Open `SKILL.md` in any text editor and **remove the YAML frontmatter block at the top** - that is, everything between the first `---` line and the second `---` line, including those marker lines. Copilot doesn't use the frontmatter and including it wastes tokens.
-3. In your repo, create or open the file `.github/copilot-instructions.md`.
-4. Paste the remaining `SKILL.md` content into `.github/copilot-instructions.md`. If the file already has content, append the skill content with a separator line between the sections.
-5. Commit and push the file so everyone on the repo gets the instructions automatically.
+Codex CLI loads skills natively from a named folder under `.agents/skills/`, the same directory-based model as Claude Code. Keep the YAML frontmatter - Codex requires the `name` and `description` fields and uses the description to decide when to load the skill.
 
-**User scope** (VS Code Copilot user settings, applies to all your Copilot interactions):
+**Project scope** - the skill loads only inside this project:
 
-1. Open VS Code Settings (**Ctrl+,** on Windows/Linux, **Cmd+,** on macOS).
-2. Search the settings for `github.copilot.chat.codeGeneration.instructions` (or a similarly named key - GitHub's setting names evolve).
-3. Add an entry pointing to a local copy of `SKILL.md` (with the frontmatter stripped), or paste the content inline.
-4. Save settings.
+1. In your project root, create the folder `.agents/skills/te-cli/`.
+2. Place the downloaded `SKILL.md` inside that folder.
 
-### Generic agents (`AGENTS.md` convention)
+Codex scans upward from your working directory, so a skill committed at the repository root (`$REPO_ROOT/.agents/skills/te-cli/`) is shared across everyone working in the repo.
 
-For tools that follow the [`AGENTS.md` convention](https://agents.md) or accept an arbitrary instructions file (Aider, Continue, OpenAI Codex CLI, custom in-house agents):
+**Personal scope** - the skill loads in every project for the current user:
 
-1. Download `SKILL.md` (see [above](#downloading-the-skill-file)).
-2. Open `SKILL.md` in a text editor and remove the YAML frontmatter block at the top (everything between the first `---` line and the second `---` line, including those marker lines).
-3. Rename the file to `AGENTS.md` and place it at your project root (or wherever your tool expects its instructions file - check the tool's documentation).
-4. The next agent invocation in that project will pick up the instructions.
+1. Create the folder `te-cli` inside your personal Codex skills directory: `~/.agents/skills/te-cli/`.
+2. Place the downloaded `SKILL.md` inside that folder.
+
+Run `/skills` in the Codex CLI or IDE to confirm `te-cli` is listed, and type `$` to mention a skill explicitly.
+
+## Install for generic agents
+
+For tools that follow the [`AGENTS.md` convention](https://agents.md) or accept an arbitrary instructions file - Aider, Continue, custom in-house agents:
+
+1. Download `SKILL.md`.
+2. Remove the YAML frontmatter block at the top (everything between the first and second `---` lines, including those lines).
+3. Rename the file to `AGENTS.md` and place it at your project root, or wherever the tool expects its instructions file.
+4. The next agent invocation in that project picks up the instructions.
 
 ## Updating
 
