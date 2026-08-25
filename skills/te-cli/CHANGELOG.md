@@ -4,13 +4,15 @@ All notable changes to the `te-cli` skill are documented in this file.
 
 ## [0.3.1] - 2026-08-25
 
-Validated against Tabular Editor CLI 0.6.0.12612 and PBIR CLI 0.9.29.
+Validated against Tabular Editor CLI 0.6.0.12612, PBIR CLI 0.9.29, and Fabric CLI 1.6.1.
 
 ### Fixed
 
 - Corrected `pbir fields find` to use `SEARCH_TERM [REPORT_PATH]`, page rename to use `--to` (and `-f` to apply), and measure visual examples to keep `--title` separate from explicit `pbir visuals bind --type Measure`.
 - Replaced the invalid local-TMDL `te vertipaq` workflow with live `-s`/`-d` capture and offline `--import <file.vpax>` analysis.
 - Standardized `te diff` exit codes as 0 identical, 1 different, and 2 error.
+- Replaced an invalid local-to-remote `te diff` example with two exported local definitions, matching the command's required `<left> <right>` positional syntax.
+- Corrected Fabric deployment and refresh polling to capture operation/request IDs from the initiating response, query the `fab api` response envelope correctly, and fail on unsuccessful terminal states.
 - Added the required `TablePermission` creation before setting its RLS `filterExpression`, using the verified add path.
 - Removed the dependency on an unavailable cross-workspace search script in favor of installed `fab find`, `fab get`, and `fab api` commands.
 - Clarified that the skill must be installed at exactly one scope and that repository-managed/reference distributions follow repository instructions rather than creating duplicate skill copies.

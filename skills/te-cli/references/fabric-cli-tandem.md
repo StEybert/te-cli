@@ -94,7 +94,7 @@ WS_ID=$(fab get "Production.Workspace" -q "id" | tr -d '"')
 MODEL_ID=$(fab get "Production.Workspace/Sales Model.SemanticModel" -q "id" | tr -d '"')
 
 fab api -A powerbi "groups/$WS_ID/datasets/$MODEL_ID/refreshes" -X post -i '{"type":"Full"}'
-fab api -A powerbi "groups/$WS_ID/datasets/$MODEL_ID/refreshes?\$top=1" -q "value[0].{status:status,started:startTime}"
+fab api -A powerbi "groups/$WS_ID/datasets/$MODEL_ID/refreshes?\$top=1" -q "text.value[0].{status:status,started:startTime}"
 ```
 
 `fab get -q "id"` returns a quoted JSON string; always pipe through `tr -d '"'` or the GUID carries literal quotes that break URL construction. `te refresh --type full -s ws -d model` also triggers a refresh over XMLA; use `fab api` when the GUIDs are already in scope or when XMLA refresh is not available. The refresh is async; the `?$top=1` check is a sanity probe, not a completion wait.
@@ -104,66 +104,135 @@ fab api -A powerbi "groups/$WS_ID/datasets/$MODEL_ID/refreshes?\$top=1" -q "valu
 Export from dev, diff against the target, gate, then deploy. The local round-trip is deliberate: `fab cp` can copy workspace-to-workspace faster but skips every `te` gate.
 
 ```bash
-mkdir -p ./promote
-fab export "Dev.Workspace/Sales.SemanticModel" -o ./promote -f
+mkdir -p ./promote/dev ./promote/prod
+fab export "Dev.Workspace/Sales.SemanticModel" -o ./promote/dev -f
+fab export "Production.Workspace/Sales.SemanticModel" -o ./promote/prod -f
 
-# Structural diff against the live prod model over XMLA
-te diff ./promote/Sales.SemanticModel/definition -s "Production" -d "Sales"
+# te diff requires two positional local model paths
+te diff \
+  ./promote/dev/Sales.SemanticModel/definition \
+  ./promote/prod/Sales.SemanticModel/definition
+case $? in
+  0) echo "Definitions are identical" ;;
+  1) echo "Definitions differ; review before promotion" ;;
+  2) echo "Diff failed" >&2; exit 1 ;;
+esac
 
-te validate -m ./promote/Sales.SemanticModel/definition --errors-only
-te bpa run --fail-on error -m ./promote/Sales.SemanticModel/definition
+te validate -m ./promote/dev/Sales.SemanticModel/definition --errors-only
+te bpa run --fail-on error -m ./promote/dev/Sales.SemanticModel/definition
 
 # Deploy, including RLS roles and members
-te deploy ./promote/Sales.SemanticModel/definition \
+te deploy ./promote/dev/Sales.SemanticModel/definition \
   -s "Production" -d "Sales" \
   --deploy-roles --deploy-role-members --force
 
 fab exists "Production.Workspace/Sales.SemanticModel"           # confirm it landed
 ```
 
-`--deploy-roles` / `--deploy-role-members` are opt-in; omit them when RLS is managed independently in prod. If XMLA is blocked, `te diff` cannot run against a live `-s`/`-d` target; instead `fab export` prod separately and diff two local folders: `te diff ./promote/Sales.SemanticModel/definition ./prod-export/Sales.SemanticModel/definition`.
+`te diff` accepts exactly two positional model paths; it cannot compare one local path directly to `-s`/`-d`. Export both definitions first as shown. `--deploy-roles` / `--deploy-role-members` are opt-in; omit them when RLS is managed independently in prod.
 
 ### Variant: governed promotion via deployment pipeline
 
 `te` provides the quality gate and an optional TMSL audit artifact; `fab` drives the Fabric deployment pipeline (which preserves item IDs across stages, so thin reports do not need rebinding).
 
 ```bash
+command -v jq >/dev/null || { echo "jq is required" >&2; exit 1; }
 te bpa run --fail-on error --ci azdo --non-interactive -m ./dev-export/Sales.SemanticModel/definition
 
 # Optional: emit the TMSL a direct XMLA deploy WOULD run, as an audit artifact (does not execute)
 te deploy ./dev-export/Sales.SemanticModel/definition -s "Dev" -d "Sales" --xmla - > ./audit/deploy.tmsl
 
-PIPELINE_ID=$(fab api "deploymentPipelines" -q "value[?displayName=='Sales Pipeline'].id | [0]" | tr -d '"')
-DEV_STAGE=$(fab api "deploymentPipelines/$PIPELINE_ID/stages" -q "value[?order==\`0\`].id | [0]" | tr -d '"')
-TEST_STAGE=$(fab api "deploymentPipelines/$PIPELINE_ID/stages" -q "value[?order==\`1\`].id | [0]" | tr -d '"')
+PIPELINES_RESPONSE=$(fab api "deploymentPipelines" --output_format json)
+[ "$(printf '%s' "$PIPELINES_RESPONSE" | jq -r '.status_code')" = "200" ] ||
+  { echo "Pipeline lookup failed" >&2; exit 1; }
+PIPELINE_ID=$(printf '%s' "$PIPELINES_RESPONSE" |
+  jq -er '[.text.value[] | select(.displayName == "Sales Pipeline") | .id][0]') ||
+  { echo "Pipeline not found" >&2; exit 1; }
 
-# Promote; capture the LRO id from the response header
-fab api -X post "deploymentPipelines/$PIPELINE_ID/deploy" \
+STAGES_RESPONSE=$(fab api "deploymentPipelines/$PIPELINE_ID/stages" --output_format json)
+[ "$(printf '%s' "$STAGES_RESPONSE" | jq -r '.status_code')" = "200" ] ||
+  { echo "Stage lookup failed" >&2; exit 1; }
+DEV_STAGE=$(printf '%s' "$STAGES_RESPONSE" |
+  jq -er '[.text.value[] | select(.order == 0) | .id][0]') ||
+  { echo "Dev stage not found" >&2; exit 1; }
+TEST_STAGE=$(printf '%s' "$STAGES_RESPONSE" |
+  jq -er '[.text.value[] | select(.order == 1) | .id][0]') ||
+  { echo "Test stage not found" >&2; exit 1; }
+
+# Promote. fab api returns an envelope containing status_code, headers, and text.
+DEPLOY_RESPONSE=$(fab api -X post "deploymentPipelines/$PIPELINE_ID/deploy" \
   -i "{\"sourceStageId\":\"$DEV_STAGE\",\"targetStageId\":\"$TEST_STAGE\",\"note\":\"BPA-gated\"}" \
-  --show_headers
+  --show_headers --output_format json)
+DEPLOY_HTTP=$(printf '%s' "$DEPLOY_RESPONSE" | jq -r '.status_code')
 
-# Poll the LRO to completion
-until s=$(fab api "operations/$OPERATION_ID" -q "status" | tr -d '"'); [ "$s" = "Succeeded" ] || [ "$s" = "Failed" ]; do sleep 30; done
+# A 202 response is a Fabric long-running operation; capture its explicit ID.
+case "$DEPLOY_HTTP" in
+  200) ;;
+  202)
+    OPERATION_ID=$(printf '%s' "$DEPLOY_RESPONSE" |
+      jq -er '.headers | to_entries[] | select(.key | ascii_downcase == "x-ms-operation-id") | .value') ||
+      { echo "Deployment operation ID missing" >&2; exit 1; }
+    while :; do
+      OPERATION_RESPONSE=$(fab api "operations/$OPERATION_ID" --output_format json)
+      [ "$(printf '%s' "$OPERATION_RESPONSE" | jq -r '.status_code')" = "200" ] ||
+        { echo "Deployment status request failed" >&2; exit 1; }
+      DEPLOY_STATUS=$(printf '%s' "$OPERATION_RESPONSE" | jq -r '.text.status')
+      case "$DEPLOY_STATUS" in
+        Succeeded) break ;;
+        NotStarted|Running) sleep 30 ;;
+        Failed|Cancelled|Error) echo "Deployment $DEPLOY_STATUS" >&2; exit 1 ;;
+        *) echo "Unexpected deployment status: $DEPLOY_STATUS" >&2; exit 1 ;;
+      esac
+    done
+    ;;
+  *) printf '%s' "$DEPLOY_RESPONSE" | jq -r '.text' >&2; exit 1 ;;
+esac
 ```
 
-The TMSL audit artifact describes a direct XMLA deploy from the local source, not what the pipeline promotion will do; treat it as a reference, not a contract. Capture `OPERATION_ID` from the `x-ms-operation-id` header immediately; it is not reliably retrievable later. Pipelines copy definitions only; refresh separately (workflow 5).
+The TMSL audit artifact describes a direct XMLA deploy from the local source, not what the pipeline promotion will do; treat it as a reference, not a contract. Fabric returns `x-ms-operation-id` only for the asynchronous (`202`) path; capture it from the same `fab api --show_headers` response. Pipelines copy definitions only; refresh separately (workflow 5).
 
 ## 5. Post-deploy: refresh, then DAX regression tests
 
 A pipeline or XMLA deploy moves definitions, not data. Refresh with `fab`, wait, then run the `te` test suite against the live model.
 
 ```bash
+command -v jq >/dev/null || { echo "jq is required" >&2; exit 1; }
 WS_ID=$(fab get "Test.Workspace" -q "id" | tr -d '"')
 MODEL_ID=$(fab get "Test.Workspace/Sales.SemanticModel" -q "id" | tr -d '"')
-fab api -A powerbi "groups/$WS_ID/datasets/$MODEL_ID/refreshes" -X post -i '{"type":"Full"}'
+REFRESH_RESPONSE=$(fab api -A powerbi "groups/$WS_ID/datasets/$MODEL_ID/refreshes" \
+  -X post -i '{"type":"full","commitMode":"transactional"}' \
+  --show_headers --output_format json)
+REFRESH_HTTP=$(printf '%s' "$REFRESH_RESPONSE" | jq -r '.status_code')
 
-# Wait for the async refresh before asserting (neither tool has a blocking wait; poll in a loop)
-until s=$(fab api -A powerbi "groups/$WS_ID/datasets/$MODEL_ID/refreshes?\$top=1" -q "value[0].status" | tr -d '"'); [ "$s" = "Completed" ] || [ "$s" = "Failed" ]; do sleep 30; done
+case "$REFRESH_HTTP" in
+  200) ;;
+  202)
+    REFRESH_ID=$(printf '%s' "$REFRESH_RESPONSE" |
+      jq -er '.headers | to_entries[] | select(.key | ascii_downcase == "x-ms-request-id") | .value') ||
+      { echo "Refresh request ID missing" >&2; exit 1; }
+    while :; do
+      REFRESH_STATUS_RESPONSE=$(fab api -A powerbi \
+        "groups/$WS_ID/datasets/$MODEL_ID/refreshes/$REFRESH_ID" --output_format json)
+      REFRESH_HTTP=$(printf '%s' "$REFRESH_STATUS_RESPONSE" | jq -r '.status_code')
+      [ "$REFRESH_HTTP" = "200" ] || [ "$REFRESH_HTTP" = "202" ] ||
+        { echo "Refresh status request failed" >&2; exit 1; }
+      REFRESH_STATUS=$(printf '%s' "$REFRESH_STATUS_RESPONSE" |
+        jq -r '.text.extendedStatus // .text.status // "Unknown"')
+      case "$REFRESH_STATUS" in
+        Completed) break ;;
+        NotStarted|InProgress|Unknown) sleep 30 ;;
+        Failed|Cancelled|Error|TimedOut|Disabled) echo "Refresh $REFRESH_STATUS" >&2; exit 1 ;;
+        *) echo "Unexpected refresh status: $REFRESH_STATUS" >&2; exit 1 ;;
+      esac
+    done
+    ;;
+  *) printf '%s' "$REFRESH_RESPONSE" | jq -r '.text' >&2; exit 1 ;;
+esac
 
 te test run --suite ./.te-tests/ --ci azdo --trx test-results.trx --non-interactive -s "Test Workspace" -d "Sales"
 ```
 
-Do not run `te test` before the refresh finishes; stale or empty data causes false failures. `te test run` needs a `.te-tests/` suite; scaffold one first with `te test init --example`. In CI, set `AZURE_CLIENT_ID`/`AZURE_CLIENT_SECRET`/`AZURE_TENANT_ID` and pass `--auth env`.
+Do not run `te test` before the refresh finishes; stale or empty data causes false failures. The enhanced refresh request returns `x-ms-request-id` on the asynchronous (`202`) path, and polling that exact ID avoids confusing this run with another refresh in history. `te test run` needs a `.te-tests/` suite; scaffold one first with `te test init --example`. In CI, set `AZURE_CLIENT_ID`/`AZURE_CLIENT_SECRET`/`AZURE_TENANT_ID` and pass `--auth env`.
 
 ## 6. Governance: enumerate with `fab`, audit with `te`
 
