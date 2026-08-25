@@ -137,10 +137,11 @@ Sources: [Calculated columns and measures (SQLBI)](https://www.sqlbi.com/article
 Define roles, set permissions, attach filters, then validate and deploy. Prefer dynamic RLS, assign Entra ID groups rather than individuals, and treat BPA as the governance gate.
 
 ```bash
-te add Roles/RegionManagers -t Role -m ./model --save
-te set Roles/RegionManagers -q modelPermission -i Read --save
-# Dynamic filter: confirm the TablePermission add/path form with `te list Roles/RegionManagers/TablePermissions`
-te set Roles/RegionManagers/TablePermissions/Sales -q filterExpression -i "[Region] = USERPRINCIPALNAME()" --save
+te add RegionManagers -t Role -m ./model --save
+te set Roles/RegionManagers -q modelPermission -i Read -m ./model --save
+# For te add, identify the role and table; the created object resolves under TablePermissions
+te add Roles/RegionManagers/Sales -t TablePermission -m ./model --save
+te set Roles/RegionManagers/TablePermissions/Sales -q filterExpression -i "[Region] = USERPRINCIPALNAME()" -m ./model --save
 te validate -m ./model
 te deploy ./model -s ws -d model --deploy-roles --deploy-role-members --force --ci github
 ```

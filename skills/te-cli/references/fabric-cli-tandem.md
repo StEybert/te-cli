@@ -1,6 +1,6 @@
 # `te` + `fab` tandem workflows
 
-`te` (Tabular Editor CLI) and `fab` (Fabric CLI) split cleanly along a single seam. `te` owns the semantic model itself: it parses TMDL/BIM locally, edits objects (`set`, `add`, `rm`, `mv`, `format`), runs validation, BPA, and VertiPaq, generates TMSL, deploys over XMLA, and runs DAX queries, refreshes, and tests against a live XMLA endpoint. `fab` owns everything around the model in the service: discovering workspaces and items, resolving display names and GUIDs, exporting and importing item definitions over the Fabric REST API, managing permissions and capacities, driving deployment pipelines, and triggering refreshes via the Power BI REST API. Neither tool crosses into the other's half: `fab` has no DAX parser, no BPA engine, and no XMLA/TOM layer, so it cannot validate or BPA-check a model; `te` has no Fabric REST client, so it cannot enumerate workspaces, resolve item GUIDs, or trigger a REST refresh. The two share Azure AD identity but cache credentials independently, so authenticate both at the start of any tandem session.
+`te` (Tabular Editor CLI) and `fab` (Fabric CLI) split cleanly along a single seam. `te` owns the semantic model itself: it parses TMDL/BIM locally, edits objects (`set`, `add`, `rm`, `mv`, `format`), runs local validation and BPA, analyzes VertiPaq from a live XMLA model or imported VPAX, generates TMSL, deploys over XMLA, and runs DAX queries, refreshes, and tests against a live XMLA endpoint. `fab` owns everything around the model in the service: discovering workspaces and items, resolving display names and GUIDs, exporting and importing item definitions over the Fabric REST API, managing permissions and capacities, driving deployment pipelines, and triggering refreshes via the Power BI REST API. Neither tool crosses into the other's half: `fab` has no DAX parser, no BPA engine, and no XMLA/TOM layer, so it cannot validate or BPA-check a model; `te` has no Fabric REST client, so it cannot enumerate workspaces, resolve item GUIDs, or trigger a REST refresh. The two share Azure AD identity but cache credentials independently, so authenticate both at the start of any tandem session.
 
 Before each workflow: `fab auth status` and `te auth status`. If either is unauthenticated, ask the user to run `fab auth login` / `te auth login`. During preview, run `te <command> --help` and `fab <command> --help` the first time a command is composed; both surfaces are still moving.
 
@@ -171,29 +171,32 @@ Discovery only comes from `fab`; `te` has no workspace or item listing surface. 
 
 ```bash
 # Enumerate semantic models across all visible workspaces
-fab find '' -P type=SemanticModel -l --output_format json > /tmp/models.json
-jq -r '.[] | "\(.workspace)/\(.name)"' /tmp/models.json
+mkdir -p ./.te-audit
+fab find '' -P type=SemanticModel -l --output_format json > ./.te-audit/models.json
+jq -r '.[] | "\(.workspace)/\(.name)"' ./.te-audit/models.json
 
-# Per model: export, then analyze locally
-mkdir -p /tmp/audit
-fab export "Production.Workspace/Sales.SemanticModel" -o /tmp/audit -f
+# Per model: export, then run metadata-only checks on local TMDL
+fab export "Production.Workspace/Sales.SemanticModel" -o ./.te-audit -f
 
-te bpa run /tmp/audit/Sales.SemanticModel/definition --rules ./BPARules.json --fail-on error --ci github
-te deps --unused --hidden -m /tmp/audit/Sales.SemanticModel/definition --output-format json
-te vertipaq /tmp/audit/Sales.SemanticModel/definition --columns --detail --top 20
+te bpa run -m ./.te-audit/Sales.SemanticModel/definition --rules ./BPARules.json --fail-on error --ci github
+te deps --unused --hidden -m ./.te-audit/Sales.SemanticModel/definition --output-format json
+
+# VertiPaq requires a live model; export VPAX once for later offline analysis
+te vertipaq --columns --detail --top 20 --export ./.te-audit/Sales.vpax -s "Production" -d "Sales"
+te vertipaq --import ./.te-audit/Sales.vpax --columns --detail --top 20
 ```
 
-For governance fields `fab find` does not expose (last refresh, storage mode, owner, capacity SKU), use the fabric-cli skill's `scripts/search_across_workspaces.py` (note its filter is `--type Model`, not `SemanticModel`). VertiPaq stats from an offline TMDL export give column/relationship structure but not live row counts or cardinality; for those, point `te vertipaq` at a live `-s`/`-d` XMLA endpoint with `--stats`. `te deps --unused` flags objects with no DAX references, but a relationship key column can show as "unused" despite being load-bearing; inspect with `te get` before removing.
+For properties not returned by `fab find`, inspect a known item with `fab get "Production.Workspace/Sales.SemanticModel" -v` and use `fab api` for service metadata such as refresh history; exact response fields depend on the API and caller permissions. A TMDL export is not a VertiPaq snapshot: obtain statistics from a live `te vertipaq -s <workspace> -d <model>` call, optionally `--export` them to VPAX, then use `--import <file.vpax>` offline. `te deps --unused` flags objects with no DAX references, but a relationship key column can show as "unused" despite being load-bearing; inspect with `te get` before removing.
 
 ## Boundaries and gotchas
 
-- **Path layout after `fab export`.** TMDL lands in `<Model>.SemanticModel/definition/`. `te validate`/`bpa run`/`vertipaq`/`deploy` operate on the model source; `fab import` wants the `.SemanticModel` folder (with `.platform`). Confirm the exact `te` target with `te load` first.
+- **Path layout after `fab export`.** TMDL lands in `<Model>.SemanticModel/definition/`. Local `te validate`/`bpa run` and `te deploy` operate on the model source; `fab import` wants the `.SemanticModel` folder (with `.platform`). `te vertipaq` does not analyze local TMDL: use live `-s`/`-d` or `--import <file.vpax>`. Confirm the exact local model target with `te load` first.
 - **Return path: XMLA vs REST.** `te deploy` writes via XMLA and runs BPA inline but needs XMLA write (Premium/Fabric capacity, PPU with XMLA, or Trial). `fab import` writes via the Fabric REST API on any SKU but runs no gate. Pick by SKU and by whether the inline BPA gate is wanted.
-- **`te diff` exit codes are documented inconsistently in the te-cli skill.** The exit-codes table (config-cicd-env.md) says `2` = models differ, `1` = generic failure; the command-reference table says `1` = differs, `2` = error. Do not branch on the exact code without verifying against the installed binary (`te diff a b; echo $?`). Both agree `0` = identical.
+- **`te diff` exit codes.** `0` means identical, `1` means differences found, and `2` means an error (bad path, load failure, or similar). Branch on all three explicitly in automation.
 - **Two-document JSON from `te bpa run --fix`.** With `--output-format json`, a `--fix` run emits two concatenated JSON documents (scan result, then fix summary). Pipe through `jq --slurp` (`jq -s '.[0]'` / `.[1]`) or drop `--output-format json` and read text. A single-document parser fails with trailing-token errors.
 - **Quoted GUIDs from `fab get`.** `fab get -q "id"` returns a quoted string; always `| tr -d '"'` before interpolating into an API path.
 - **`fab` REST refresh path shape.** `fab api -A powerbi` uses the Power BI `groups/<ws-id>/datasets/<model-id>` shape; the Fabric REST API uses `workspaces/<ws-id>/semanticModels/<model-id>`. Same GUIDs, different URL.
-- **No native pipe between the CLIs.** `fab find` / `search_across_workspaces.py` produce paths; a shell intermediary (`jq`, `while read`) feeds them into a `te` loop. `te` has no multi-model loop and no service-discovery command of its own.
+- **No native pipe between the CLIs.** `fab find --output_format json` produces discovery data; a shell intermediary (`jq`, `while read`) feeds model names into a `te` loop. `te` has no multi-model loop and no service-discovery command of its own.
 - **Always `mkdir -p` before `fab export`** (it does not create parents), and **always `-f`** on `fab export`/`import` (skips the sensitivity-label / overwrite prompt). If sensitivity labels or DLP policies are in play, confirm with the user before exporting; `-f` strips the label on export.
 - **CI flags on `te`.** Pass `--non-interactive` and `--force` (on `te deploy`) or the confirmation prompt defaults to `n` and hangs the pipeline. Use `--auth env` with `AZURE_CLIENT_*`; never put a secret on the command line.
 - **Thin-report rebinding is a `fab` job.** After a `fab import` or `fab cp` of a thin report to a new workspace, rebind with `fab set "<ws>/<Report>.Report" -q semanticModelId -i "<target-model-id>"`. Deployment pipelines preserve IDs and skip this; manual import/copy does not.

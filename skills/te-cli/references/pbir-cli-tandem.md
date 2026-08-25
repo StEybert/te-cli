@@ -22,8 +22,8 @@ te find "OldRevenue" --in all -m ./Model.SemanticModel
 # te: gate before touching the report
 te validate -m ./Model.SemanticModel --errors-only
 
-# pbir: find report bindings on the old reference (run --help to confirm arg order)
-pbir fields find "Report.Report" -f "_Measures.OldRevenue"
+# pbir: find report bindings on the old reference (search term first, optional report second)
+pbir fields find "_Measures.OldRevenue" "Report.Report"
 
 # pbir: preview, then apply the report-side rewrite
 pbir fields replace "Report.Report" --from "_Measures.OldRevenue" --to "_Measures.Revenue" --dry-run
@@ -58,7 +58,7 @@ te move "Date/OldColumnName" "Date/NewColumnName" --save -m ./Model.SemanticMode
 te find "OldColumnName" --in all -m ./Model.SemanticModel                  # string-literal / description leftovers only
 te validate -m ./Model.SemanticModel --errors-only
 
-pbir fields find "Report.Report" -f "Date.OldColumnName"
+pbir fields find "Date.OldColumnName" "Report.Report"
 pbir fields replace "Report.Report" --from "Date.OldColumnName" --to "Date.NewColumnName" --dry-run
 pbir fields replace "Report.Report" --from "Date.OldColumnName" --to "Date.NewColumnName"
 pbir validate "Report.Report" --fields
@@ -105,7 +105,7 @@ te find "SourceTable[MeasureName]" --in expressions -m ./Model.SemanticModel   #
 te move "SourceTable/MeasureName" "TargetTable/MeasureName" --save -m ./Model.SemanticModel
 te validate -m ./Model.SemanticModel --errors-only
 
-pbir fields find "Report.Report" -f "SourceTable.MeasureName"
+pbir fields find "SourceTable.MeasureName" "Report.Report"
 pbir fields replace "Report.Report" --from "SourceTable.MeasureName" --to "TargetTable.MeasureName"
 pbir validate "Report.Report" --fields
 ```
@@ -131,16 +131,18 @@ te deploy ./Model.SemanticModel -s "MyWorkspace" -d "Sales Model" --force --non-
 
 # pbir: create thin report bound to the published model, build, validate
 pbir new report "Sales.Report" -c "MyWorkspace/Sales Model.SemanticModel"
-pbir pages rename "Sales.Report/Page 1.Page" "Overview"
+pbir pages rename "Sales.Report/Page 1.Page" --to "Overview" -f
 pbir model "Sales.Report" -d                          # introspect tables/measures before binding
-pbir add visual card "Sales.Report/Overview.Page" --title "Revenue" -d "Values:_Measures.Revenue" -t Measure --y 120
+pbir add visual card "Sales.Report/Overview.Page" --name revenueCard --title "Revenue" --y 120
+pbir visuals bind "Sales.Report/Overview.Page/revenueCard.Visual" --add "Values:_Measures.Revenue" --type Measure
 pbir validate "Sales.Report" --fields
 ```
 
 ```yaml
 te deploy --force --non-interactive: deploy prompts with n as the default and hangs scripts without --force; set both in CI
 pbir new report -c: a workspace target produces a byConnection (thin) report; the model must be reachable in the workspace first
-pbir add visual -t Measure: pass the type or -d defaults to a Column binding, which fails at runtime even though validate passes the JSON
+pbir add visual --title / -t: sets displayed title only; it is not a field-type option
+pbir visuals bind --type Measure: applies the explicit field type while adding the measure binding
 pbir model -d: schema comes via TMDL, not DMV; -q runs EVALUATE DAX only
 te validate scope: does not exercise M partitions; broken M surfaces only on refresh
 ```
@@ -164,7 +166,8 @@ te deploy ./Model.SemanticModel -s "MyWorkspace" -d "Sales Model" --force --non-
 
 pbir model "Sales.Report" --cache                     # refresh the report's cached model definition
 pbir model "Sales.Report" -d -t _Measures | grep -i "YoY"
-pbir add visual card "Sales.Report/Overview.Page" --title "Revenue YoY" -d "Values:_Measures.Revenue YoY" -t Measure --y 120
+pbir add visual card "Sales.Report/Overview.Page" --name revenueYoyCard --title "Revenue YoY" --y 120
+pbir visuals bind "Sales.Report/Overview.Page/revenueYoyCard.Visual" --add "Values:_Measures.Revenue YoY" --type Measure
 pbir validate "Sales.Report" --fields
 ```
 
@@ -178,7 +181,7 @@ Report-first, model-second. Clear the report bindings while the column still exi
 te deps Sales/OldRegionCode --downstream -m ./Model.SemanticModel   # model-side dependents
 
 # pbir: find and remove the report references first
-pbir fields find "Report.Report" -f "Sales.OldRegionCode"
+pbir fields find "Sales.OldRegionCode" "Report.Report"
 pbir validate "Report.Report"
 # surgical removal per visual is safer than a broad clear:
 pbir visuals bind "Report.Report/Page.Page/Visual.Visual" -r "Category:Sales.OldRegionCode"
@@ -239,13 +242,13 @@ pbir owns:
   - report-layer references: visual queryState projections, filters, CF, slicer bindings
   - pbir fields replace works per Table.Field; there is no table-level bulk rewrite, so a table rename is one replace per affected field (enumerate with pbir fields list first)
   - pbir validate --fields resolves against the connected model; if the report is byPath it validates against the local TMDL, if byConnection against the workspace model (confirm with pbir model first)
-  - pbir add visual / visuals bind: pass -t Measure or the binding defaults to Column and fails at runtime
+  - pbir add visual --title / -t controls the displayed title; for an explicit field type, add the binding separately with pbir visuals bind --add <role>:<field> --type Column|Measure
 
 Not covered by pbir fields replace (handle separately):
   - extension measures in reportExtensions.json: inspect with pbir dax measures list / json; rename the object with pbir dax measures rename, but the DAX body must be re-authored manually
   - visual calculations: locate with pbir dax viscalcs json and update the DAX separately
   - bookmark data states: pbir validate --fields surfaces broken refs but does not repair captured slicer/filter state; re-test bookmarks after a rename
 
-Argument-order caveat:
-  - the pbir skill documents two forms for pbir fields find (report-first with -f, and search-term-first); run pbir fields find --help to confirm the build in use before scripting it
+Argument order (pbir 0.9.29):
+  - pbir fields find SEARCH_TERM [REPORT_PATH]; there is no report-first -f form
 ```
