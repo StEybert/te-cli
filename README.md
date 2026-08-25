@@ -37,6 +37,8 @@ mkdir -p ~/.copilot/skills && cp -r /tmp/te-cli/skills/te-cli ~/.copilot/skills/
 
 For workspace scope, copy into `.github/skills/te-cli/` instead. Copilot also reads `~/.claude/skills/` and `~/.agents/skills/`, so the same folder placed in one of those works for both tools.
 
+Install `te-cli` at exactly one scope: project/workspace or user, never both, and do not combine a plugin install with a manual copy. If a repository supplies managed/reference skills, follow its `AGENTS.md` and related instructions rather than recreating `.claude\skills\te-cli`.
+
 See [`skills/te-cli/`](./skills/te-cli/) for the skill, its `references/`, and per-agent (Claude Code, Copilot, Codex, generic) install instructions.
 
 ## 🐛 Before you open an issue

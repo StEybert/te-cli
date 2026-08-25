@@ -31,6 +31,9 @@ Other agents (GitHub Copilot, Cursor, Aider, generic `AGENTS.md` consumers) don'
 
 This repo is a Claude Code plugin marketplace named `te-cli` with a single plugin, `te-cli-agentic-use`. Installing it pulls in `SKILL.md` and the whole `references/` directory at once:
 
+> [!WARNING]
+> Choose exactly one installation mechanism and scope for `te-cli`. Do not install the same skill at both project/workspace and user scope, and do not combine the plugin with a manual copy; duplicate discovery can load conflicting or stale versions. In repositories where skills are centrally managed or supplied as references, follow that repository's `AGENTS.md` and related instructions instead of recreating `.claude\skills\te-cli`.
+
 ```bash
 claude plugin marketplace add TabularEditor/CLI
 claude plugin install te-cli-agentic-use@te-cli
@@ -38,17 +41,16 @@ claude plugin install te-cli-agentic-use@te-cli
 
 Run `/plugin` (or `claude plugin list`) to confirm it is enabled. For directory-based installs (below), copy the entire `skills/te-cli/` folder, not just `SKILL.md`, so the `references/` travel with it.
 
-## Downloading the skill file
+## Downloading the skill folder
 
-The skill ships as a single file: [**`SKILL.md`**](./SKILL.md).
+The skill ships as [**`SKILL.md`**](./SKILL.md) plus the [`references/`](./references/) directory. Download or copy the whole `skills/te-cli/` folder so progressively loaded references remain available.
 
 To download:
 
-1. Open [`SKILL.md`](./SKILL.md) on GitHub.
-2. Click the **Download raw file** button (top-right of the file viewer, next to the **Raw** / **Copy** buttons).
-3. Save the file somewhere convenient.
+1. Download the repository archive or clone the repository.
+2. Copy the complete `skills/te-cli/` directory to the one scope chosen below.
 
-You'll move this file to a tool-specific location in the install steps below. To check what changed between versions before downloading a newer copy, see the [CHANGELOG](./CHANGELOG.md).
+To check what changed between versions before installing a newer copy, see the [CHANGELOG](./CHANGELOG.md).
 
 ## Install for Claude Code
 
@@ -57,7 +59,7 @@ Claude Code loads skills from a named folder under `.claude/skills/`. The `descr
 **Project scope** - the skill loads only inside this project:
 
 1. In your project root, create the folder `.claude/skills/te-cli/`.
-2. Place the downloaded `SKILL.md` inside that folder.
+2. Place the downloaded `SKILL.md` and `references/` inside that folder.
 
 The final path is `<your-project>/.claude/skills/te-cli/SKILL.md`.
 
@@ -66,7 +68,7 @@ The final path is `<your-project>/.claude/skills/te-cli/SKILL.md`.
 1. Create a `te-cli` folder inside your user-level Claude skills directory:
    - **macOS / Linux:** `~/.claude/skills/te-cli/`
    - **Windows:** `%USERPROFILE%\.claude\skills\te-cli\` (typically `C:\Users\<you>\.claude\skills\te-cli\`)
-2. Place the downloaded `SKILL.md` inside that folder.
+2. Place the downloaded `SKILL.md` and `references/` inside that folder.
 
 > [!NOTE]
 > Claude Code watches skill directories and picks up new or edited skills within the current session - no restart needed. The exception is creating a `.claude/skills/` directory that did not exist when the session started: restart Claude Code once so it begins watching the new directory.
@@ -110,14 +112,14 @@ Codex CLI loads skills natively from a named folder under `.agents/skills/`, the
 **Project scope** - the skill loads only inside this project:
 
 1. In your project root, create the folder `.agents/skills/te-cli/`.
-2. Place the downloaded `SKILL.md` inside that folder.
+2. Place the downloaded `SKILL.md` and `references/` inside that folder.
 
 Codex scans upward from your working directory, so a skill committed at the repository root (`$REPO_ROOT/.agents/skills/te-cli/`) is shared across everyone working in the repo.
 
 **Personal scope** - the skill loads in every project for the current user:
 
 1. Create the folder `te-cli` inside your personal Codex skills directory: `~/.agents/skills/te-cli/`.
-2. Place the downloaded `SKILL.md` inside that folder.
+2. Place the downloaded `SKILL.md` and `references/` inside that folder.
 
 Run `/skills` in the Codex CLI or IDE to confirm `te-cli` is listed, and type `$` to mention a skill explicitly.
 
@@ -134,9 +136,8 @@ For tools that follow the [`AGENTS.md` convention](https://agents.md) or accept 
 
 To pull a newer version:
 
-1. Visit [`SKILL.md`](./SKILL.md) on GitHub.
-2. Use the **Download raw file** button to grab the latest copy.
-3. Replace the `SKILL.md` you previously placed in your skills folder (Claude Code) with the new copy, or re-upload it via the Skills UI (Claude.ai / Desktop), or re-paste the body into `.github/copilot-instructions.md` (Copilot).
+1. Download the latest repository archive or pull the repository.
+2. Replace the complete installed `te-cli` skill folder at the single scope you selected.
 
 See the [CHANGELOG](./CHANGELOG.md) for what changed between versions.
 

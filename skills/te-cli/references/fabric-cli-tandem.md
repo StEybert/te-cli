@@ -1,6 +1,6 @@
 # `te` + `fab` tandem workflows
 
-`te` (Tabular Editor CLI) and `fab` (Fabric CLI) split cleanly along a single seam. `te` owns the semantic model itself: it parses TMDL/BIM locally, edits objects (`set`, `add`, `rm`, `mv`, `format`), runs validation, BPA, and VertiPaq, generates TMSL, deploys over XMLA, and runs DAX queries, refreshes, and tests against a live XMLA endpoint. `fab` owns everything around the model in the service: discovering workspaces and items, resolving display names and GUIDs, exporting and importing item definitions over the Fabric REST API, managing permissions and capacities, driving deployment pipelines, and triggering refreshes via the Power BI REST API. Neither tool crosses into the other's half: `fab` has no DAX parser, no BPA engine, and no XMLA/TOM layer, so it cannot validate or BPA-check a model; `te` has no Fabric REST client, so it cannot enumerate workspaces, resolve item GUIDs, or trigger a REST refresh. The two share Azure AD identity but cache credentials independently, so authenticate both at the start of any tandem session.
+`te` (Tabular Editor CLI) and `fab` (Fabric CLI) split cleanly along a single seam. `te` owns the semantic model itself: it parses TMDL/BIM locally, edits objects (`set`, `add`, `rm`, `mv`, `format`), runs local validation and BPA, analyzes VertiPaq from a live XMLA model or imported VPAX, generates TMSL, deploys over XMLA, and runs DAX queries, refreshes, and tests against a live XMLA endpoint. `fab` owns everything around the model in the service: discovering workspaces and items, resolving display names and GUIDs, exporting and importing item definitions over the Fabric REST API, managing permissions and capacities, driving deployment pipelines, and triggering refreshes via the Power BI REST API. Neither tool crosses into the other's half: `fab` has no DAX parser, no BPA engine, and no XMLA/TOM layer, so it cannot validate or BPA-check a model; `te` has no Fabric REST client, so it cannot enumerate workspaces, resolve item GUIDs, or trigger a REST refresh. The two share Azure AD identity but cache credentials independently, so authenticate both at the start of any tandem session.
 
 Before each workflow: `fab auth status` and `te auth status`. If either is unauthenticated, ask the user to run `fab auth login` / `te auth login`. During preview, run `te <command> --help` and `fab <command> --help` the first time a command is composed; both surfaces are still moving.
 
@@ -94,7 +94,7 @@ WS_ID=$(fab get "Production.Workspace" -q "id" | tr -d '"')
 MODEL_ID=$(fab get "Production.Workspace/Sales Model.SemanticModel" -q "id" | tr -d '"')
 
 fab api -A powerbi "groups/$WS_ID/datasets/$MODEL_ID/refreshes" -X post -i '{"type":"Full"}'
-fab api -A powerbi "groups/$WS_ID/datasets/$MODEL_ID/refreshes?\$top=1" -q "value[0].{status:status,started:startTime}"
+fab api -A powerbi "groups/$WS_ID/datasets/$MODEL_ID/refreshes?\$top=1" -q "text.value[0].{status:status,started:startTime}"
 ```
 
 `fab get -q "id"` returns a quoted JSON string; always pipe through `tr -d '"'` or the GUID carries literal quotes that break URL construction. `te refresh --type full -s ws -d model` also triggers a refresh over XMLA; use `fab api` when the GUIDs are already in scope or when XMLA refresh is not available. The refresh is async; the `?$top=1` check is a sanity probe, not a completion wait.
@@ -104,66 +104,135 @@ fab api -A powerbi "groups/$WS_ID/datasets/$MODEL_ID/refreshes?\$top=1" -q "valu
 Export from dev, diff against the target, gate, then deploy. The local round-trip is deliberate: `fab cp` can copy workspace-to-workspace faster but skips every `te` gate.
 
 ```bash
-mkdir -p ./promote
-fab export "Dev.Workspace/Sales.SemanticModel" -o ./promote -f
+mkdir -p ./promote/dev ./promote/prod
+fab export "Dev.Workspace/Sales.SemanticModel" -o ./promote/dev -f
+fab export "Production.Workspace/Sales.SemanticModel" -o ./promote/prod -f
 
-# Structural diff against the live prod model over XMLA
-te diff ./promote/Sales.SemanticModel/definition -s "Production" -d "Sales"
+# te diff requires two positional local model paths
+te diff \
+  ./promote/dev/Sales.SemanticModel/definition \
+  ./promote/prod/Sales.SemanticModel/definition
+case $? in
+  0) echo "Definitions are identical" ;;
+  1) echo "Definitions differ; review before promotion" ;;
+  2) echo "Diff failed" >&2; exit 1 ;;
+esac
 
-te validate -m ./promote/Sales.SemanticModel/definition --errors-only
-te bpa run --fail-on error -m ./promote/Sales.SemanticModel/definition
+te validate -m ./promote/dev/Sales.SemanticModel/definition --errors-only
+te bpa run --fail-on error -m ./promote/dev/Sales.SemanticModel/definition
 
 # Deploy, including RLS roles and members
-te deploy ./promote/Sales.SemanticModel/definition \
+te deploy ./promote/dev/Sales.SemanticModel/definition \
   -s "Production" -d "Sales" \
   --deploy-roles --deploy-role-members --force
 
 fab exists "Production.Workspace/Sales.SemanticModel"           # confirm it landed
 ```
 
-`--deploy-roles` / `--deploy-role-members` are opt-in; omit them when RLS is managed independently in prod. If XMLA is blocked, `te diff` cannot run against a live `-s`/`-d` target; instead `fab export` prod separately and diff two local folders: `te diff ./promote/Sales.SemanticModel/definition ./prod-export/Sales.SemanticModel/definition`.
+`te diff` accepts exactly two positional model paths; it cannot compare one local path directly to `-s`/`-d`. Export both definitions first as shown. `--deploy-roles` / `--deploy-role-members` are opt-in; omit them when RLS is managed independently in prod.
 
 ### Variant: governed promotion via deployment pipeline
 
 `te` provides the quality gate and an optional TMSL audit artifact; `fab` drives the Fabric deployment pipeline (which preserves item IDs across stages, so thin reports do not need rebinding).
 
 ```bash
+command -v jq >/dev/null || { echo "jq is required" >&2; exit 1; }
 te bpa run --fail-on error --ci azdo --non-interactive -m ./dev-export/Sales.SemanticModel/definition
 
 # Optional: emit the TMSL a direct XMLA deploy WOULD run, as an audit artifact (does not execute)
 te deploy ./dev-export/Sales.SemanticModel/definition -s "Dev" -d "Sales" --xmla - > ./audit/deploy.tmsl
 
-PIPELINE_ID=$(fab api "deploymentPipelines" -q "value[?displayName=='Sales Pipeline'].id | [0]" | tr -d '"')
-DEV_STAGE=$(fab api "deploymentPipelines/$PIPELINE_ID/stages" -q "value[?order==\`0\`].id | [0]" | tr -d '"')
-TEST_STAGE=$(fab api "deploymentPipelines/$PIPELINE_ID/stages" -q "value[?order==\`1\`].id | [0]" | tr -d '"')
+PIPELINES_RESPONSE=$(fab api "deploymentPipelines" --output_format json)
+[ "$(printf '%s' "$PIPELINES_RESPONSE" | jq -r '.status_code')" = "200" ] ||
+  { echo "Pipeline lookup failed" >&2; exit 1; }
+PIPELINE_ID=$(printf '%s' "$PIPELINES_RESPONSE" |
+  jq -er '[.text.value[] | select(.displayName == "Sales Pipeline") | .id][0]') ||
+  { echo "Pipeline not found" >&2; exit 1; }
 
-# Promote; capture the LRO id from the response header
-fab api -X post "deploymentPipelines/$PIPELINE_ID/deploy" \
+STAGES_RESPONSE=$(fab api "deploymentPipelines/$PIPELINE_ID/stages" --output_format json)
+[ "$(printf '%s' "$STAGES_RESPONSE" | jq -r '.status_code')" = "200" ] ||
+  { echo "Stage lookup failed" >&2; exit 1; }
+DEV_STAGE=$(printf '%s' "$STAGES_RESPONSE" |
+  jq -er '[.text.value[] | select(.order == 0) | .id][0]') ||
+  { echo "Dev stage not found" >&2; exit 1; }
+TEST_STAGE=$(printf '%s' "$STAGES_RESPONSE" |
+  jq -er '[.text.value[] | select(.order == 1) | .id][0]') ||
+  { echo "Test stage not found" >&2; exit 1; }
+
+# Promote. fab api returns an envelope containing status_code, headers, and text.
+DEPLOY_RESPONSE=$(fab api -X post "deploymentPipelines/$PIPELINE_ID/deploy" \
   -i "{\"sourceStageId\":\"$DEV_STAGE\",\"targetStageId\":\"$TEST_STAGE\",\"note\":\"BPA-gated\"}" \
-  --show_headers
+  --show_headers --output_format json)
+DEPLOY_HTTP=$(printf '%s' "$DEPLOY_RESPONSE" | jq -r '.status_code')
 
-# Poll the LRO to completion
-until s=$(fab api "operations/$OPERATION_ID" -q "status" | tr -d '"'); [ "$s" = "Succeeded" ] || [ "$s" = "Failed" ]; do sleep 30; done
+# A 202 response is a Fabric long-running operation; capture its explicit ID.
+case "$DEPLOY_HTTP" in
+  200) ;;
+  202)
+    OPERATION_ID=$(printf '%s' "$DEPLOY_RESPONSE" |
+      jq -er '.headers | to_entries[] | select(.key | ascii_downcase == "x-ms-operation-id") | .value') ||
+      { echo "Deployment operation ID missing" >&2; exit 1; }
+    while :; do
+      OPERATION_RESPONSE=$(fab api "operations/$OPERATION_ID" --output_format json)
+      [ "$(printf '%s' "$OPERATION_RESPONSE" | jq -r '.status_code')" = "200" ] ||
+        { echo "Deployment status request failed" >&2; exit 1; }
+      DEPLOY_STATUS=$(printf '%s' "$OPERATION_RESPONSE" | jq -r '.text.status')
+      case "$DEPLOY_STATUS" in
+        Succeeded) break ;;
+        NotStarted|Running) sleep 30 ;;
+        Failed|Cancelled|Error) echo "Deployment $DEPLOY_STATUS" >&2; exit 1 ;;
+        *) echo "Unexpected deployment status: $DEPLOY_STATUS" >&2; exit 1 ;;
+      esac
+    done
+    ;;
+  *) printf '%s' "$DEPLOY_RESPONSE" | jq -r '.text' >&2; exit 1 ;;
+esac
 ```
 
-The TMSL audit artifact describes a direct XMLA deploy from the local source, not what the pipeline promotion will do; treat it as a reference, not a contract. Capture `OPERATION_ID` from the `x-ms-operation-id` header immediately; it is not reliably retrievable later. Pipelines copy definitions only; refresh separately (workflow 5).
+The TMSL audit artifact describes a direct XMLA deploy from the local source, not what the pipeline promotion will do; treat it as a reference, not a contract. Fabric returns `x-ms-operation-id` only for the asynchronous (`202`) path; capture it from the same `fab api --show_headers` response. Pipelines copy definitions only; refresh separately (workflow 5).
 
 ## 5. Post-deploy: refresh, then DAX regression tests
 
 A pipeline or XMLA deploy moves definitions, not data. Refresh with `fab`, wait, then run the `te` test suite against the live model.
 
 ```bash
+command -v jq >/dev/null || { echo "jq is required" >&2; exit 1; }
 WS_ID=$(fab get "Test.Workspace" -q "id" | tr -d '"')
 MODEL_ID=$(fab get "Test.Workspace/Sales.SemanticModel" -q "id" | tr -d '"')
-fab api -A powerbi "groups/$WS_ID/datasets/$MODEL_ID/refreshes" -X post -i '{"type":"Full"}'
+REFRESH_RESPONSE=$(fab api -A powerbi "groups/$WS_ID/datasets/$MODEL_ID/refreshes" \
+  -X post -i '{"type":"full","commitMode":"transactional"}' \
+  --show_headers --output_format json)
+REFRESH_HTTP=$(printf '%s' "$REFRESH_RESPONSE" | jq -r '.status_code')
 
-# Wait for the async refresh before asserting (neither tool has a blocking wait; poll in a loop)
-until s=$(fab api -A powerbi "groups/$WS_ID/datasets/$MODEL_ID/refreshes?\$top=1" -q "value[0].status" | tr -d '"'); [ "$s" = "Completed" ] || [ "$s" = "Failed" ]; do sleep 30; done
+case "$REFRESH_HTTP" in
+  200) ;;
+  202)
+    REFRESH_ID=$(printf '%s' "$REFRESH_RESPONSE" |
+      jq -er '.headers | to_entries[] | select(.key | ascii_downcase == "x-ms-request-id") | .value') ||
+      { echo "Refresh request ID missing" >&2; exit 1; }
+    while :; do
+      REFRESH_STATUS_RESPONSE=$(fab api -A powerbi \
+        "groups/$WS_ID/datasets/$MODEL_ID/refreshes/$REFRESH_ID" --output_format json)
+      REFRESH_HTTP=$(printf '%s' "$REFRESH_STATUS_RESPONSE" | jq -r '.status_code')
+      [ "$REFRESH_HTTP" = "200" ] || [ "$REFRESH_HTTP" = "202" ] ||
+        { echo "Refresh status request failed" >&2; exit 1; }
+      REFRESH_STATUS=$(printf '%s' "$REFRESH_STATUS_RESPONSE" |
+        jq -r '.text.extendedStatus // .text.status // "Unknown"')
+      case "$REFRESH_STATUS" in
+        Completed) break ;;
+        NotStarted|InProgress|Unknown) sleep 30 ;;
+        Failed|Cancelled|Error|TimedOut|Disabled) echo "Refresh $REFRESH_STATUS" >&2; exit 1 ;;
+        *) echo "Unexpected refresh status: $REFRESH_STATUS" >&2; exit 1 ;;
+      esac
+    done
+    ;;
+  *) printf '%s' "$REFRESH_RESPONSE" | jq -r '.text' >&2; exit 1 ;;
+esac
 
 te test run --suite ./.te-tests/ --ci azdo --trx test-results.trx --non-interactive -s "Test Workspace" -d "Sales"
 ```
 
-Do not run `te test` before the refresh finishes; stale or empty data causes false failures. `te test run` needs a `.te-tests/` suite; scaffold one first with `te test init --example`. In CI, set `AZURE_CLIENT_ID`/`AZURE_CLIENT_SECRET`/`AZURE_TENANT_ID` and pass `--auth env`.
+Do not run `te test` before the refresh finishes; stale or empty data causes false failures. The enhanced refresh request returns `x-ms-request-id` on the asynchronous (`202`) path, and polling that exact ID avoids confusing this run with another refresh in history. `te test run` needs a `.te-tests/` suite; scaffold one first with `te test init --example`. In CI, set `AZURE_CLIENT_ID`/`AZURE_CLIENT_SECRET`/`AZURE_TENANT_ID` and pass `--auth env`.
 
 ## 6. Governance: enumerate with `fab`, audit with `te`
 
@@ -171,29 +240,32 @@ Discovery only comes from `fab`; `te` has no workspace or item listing surface. 
 
 ```bash
 # Enumerate semantic models across all visible workspaces
-fab find '' -P type=SemanticModel -l --output_format json > /tmp/models.json
-jq -r '.[] | "\(.workspace)/\(.name)"' /tmp/models.json
+mkdir -p ./.te-audit
+fab find '' -P type=SemanticModel -l --output_format json > ./.te-audit/models.json
+jq -r '.[] | "\(.workspace)/\(.name)"' ./.te-audit/models.json
 
-# Per model: export, then analyze locally
-mkdir -p /tmp/audit
-fab export "Production.Workspace/Sales.SemanticModel" -o /tmp/audit -f
+# Per model: export, then run metadata-only checks on local TMDL
+fab export "Production.Workspace/Sales.SemanticModel" -o ./.te-audit -f
 
-te bpa run /tmp/audit/Sales.SemanticModel/definition --rules ./BPARules.json --fail-on error --ci github
-te deps --unused --hidden -m /tmp/audit/Sales.SemanticModel/definition --output-format json
-te vertipaq /tmp/audit/Sales.SemanticModel/definition --columns --detail --top 20
+te bpa run -m ./.te-audit/Sales.SemanticModel/definition --rules ./BPARules.json --fail-on error --ci github
+te deps --unused --hidden -m ./.te-audit/Sales.SemanticModel/definition --output-format json
+
+# VertiPaq requires a live model; export VPAX once for later offline analysis
+te vertipaq --columns --detail --top 20 --export ./.te-audit/Sales.vpax -s "Production" -d "Sales"
+te vertipaq --import ./.te-audit/Sales.vpax --columns --detail --top 20
 ```
 
-For governance fields `fab find` does not expose (last refresh, storage mode, owner, capacity SKU), use the fabric-cli skill's `scripts/search_across_workspaces.py` (note its filter is `--type Model`, not `SemanticModel`). VertiPaq stats from an offline TMDL export give column/relationship structure but not live row counts or cardinality; for those, point `te vertipaq` at a live `-s`/`-d` XMLA endpoint with `--stats`. `te deps --unused` flags objects with no DAX references, but a relationship key column can show as "unused" despite being load-bearing; inspect with `te get` before removing.
+For properties not returned by `fab find`, inspect a known item with `fab get "Production.Workspace/Sales.SemanticModel" -v` and use `fab api` for service metadata such as refresh history; exact response fields depend on the API and caller permissions. A TMDL export is not a VertiPaq snapshot: obtain statistics from a live `te vertipaq -s <workspace> -d <model>` call, optionally `--export` them to VPAX, then use `--import <file.vpax>` offline. `te deps --unused` flags objects with no DAX references, but a relationship key column can show as "unused" despite being load-bearing; inspect with `te get` before removing.
 
 ## Boundaries and gotchas
 
-- **Path layout after `fab export`.** TMDL lands in `<Model>.SemanticModel/definition/`. `te validate`/`bpa run`/`vertipaq`/`deploy` operate on the model source; `fab import` wants the `.SemanticModel` folder (with `.platform`). Confirm the exact `te` target with `te load` first.
+- **Path layout after `fab export`.** TMDL lands in `<Model>.SemanticModel/definition/`. Local `te validate`/`bpa run` and `te deploy` operate on the model source; `fab import` wants the `.SemanticModel` folder (with `.platform`). `te vertipaq` does not analyze local TMDL: use live `-s`/`-d` or `--import <file.vpax>`. Confirm the exact local model target with `te load` first.
 - **Return path: XMLA vs REST.** `te deploy` writes via XMLA and runs BPA inline but needs XMLA write (Premium/Fabric capacity, PPU with XMLA, or Trial). `fab import` writes via the Fabric REST API on any SKU but runs no gate. Pick by SKU and by whether the inline BPA gate is wanted.
-- **`te diff` exit codes are documented inconsistently in the te-cli skill.** The exit-codes table (config-cicd-env.md) says `2` = models differ, `1` = generic failure; the command-reference table says `1` = differs, `2` = error. Do not branch on the exact code without verifying against the installed binary (`te diff a b; echo $?`). Both agree `0` = identical.
+- **`te diff` exit codes.** `0` means identical, `1` means differences found, and `2` means an error (bad path, load failure, or similar). Branch on all three explicitly in automation.
 - **Two-document JSON from `te bpa run --fix`.** With `--output-format json`, a `--fix` run emits two concatenated JSON documents (scan result, then fix summary). Pipe through `jq --slurp` (`jq -s '.[0]'` / `.[1]`) or drop `--output-format json` and read text. A single-document parser fails with trailing-token errors.
 - **Quoted GUIDs from `fab get`.** `fab get -q "id"` returns a quoted string; always `| tr -d '"'` before interpolating into an API path.
 - **`fab` REST refresh path shape.** `fab api -A powerbi` uses the Power BI `groups/<ws-id>/datasets/<model-id>` shape; the Fabric REST API uses `workspaces/<ws-id>/semanticModels/<model-id>`. Same GUIDs, different URL.
-- **No native pipe between the CLIs.** `fab find` / `search_across_workspaces.py` produce paths; a shell intermediary (`jq`, `while read`) feeds them into a `te` loop. `te` has no multi-model loop and no service-discovery command of its own.
+- **No native pipe between the CLIs.** `fab find --output_format json` produces discovery data; a shell intermediary (`jq`, `while read`) feeds model names into a `te` loop. `te` has no multi-model loop and no service-discovery command of its own.
 - **Always `mkdir -p` before `fab export`** (it does not create parents), and **always `-f`** on `fab export`/`import` (skips the sensitivity-label / overwrite prompt). If sensitivity labels or DLP policies are in play, confirm with the user before exporting; `-f` strips the label on export.
 - **CI flags on `te`.** Pass `--non-interactive` and `--force` (on `te deploy`) or the confirmation prompt defaults to `n` and hangs the pipeline. Use `--auth env` with `AZURE_CLIENT_*`; never put a secret on the command line.
 - **Thin-report rebinding is a `fab` job.** After a `fab import` or `fab cp` of a thin report to a new workspace, rebind with `fab set "<ws>/<Report>.Report" -q semanticModelId -i "<target-model-id>"`. Deployment pipelines preserve IDs and skip this; manual import/copy does not.

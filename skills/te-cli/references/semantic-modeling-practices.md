@@ -137,10 +137,11 @@ Sources: [Calculated columns and measures (SQLBI)](https://www.sqlbi.com/article
 Define roles, set permissions, attach filters, then validate and deploy. Prefer dynamic RLS, assign Entra ID groups rather than individuals, and treat BPA as the governance gate.
 
 ```bash
-te add Roles/RegionManagers -t Role -m ./model --save
-te set Roles/RegionManagers -q modelPermission -i Read --save
-# Dynamic filter: confirm the TablePermission add/path form with `te list Roles/RegionManagers/TablePermissions`
-te set Roles/RegionManagers/TablePermissions/Sales -q filterExpression -i "[Region] = USERPRINCIPALNAME()" --save
+te add RegionManagers -t Role -m ./model --save
+te set Roles/RegionManagers -q modelPermission -i Read -m ./model --save
+# For te add, identify the role and table; the created object resolves under TablePermissions
+te add Roles/RegionManagers/Sales -t TablePermission -m ./model --save
+te set Roles/RegionManagers/TablePermissions/Sales -q filterExpression -i "[Region] = USERPRINCIPALNAME()" -m ./model --save
 te validate -m ./model
 te deploy ./model -s ws -d model --deploy-roles --deploy-role-members --force --ci github
 ```
@@ -154,7 +155,7 @@ te deploy ./model -s ws -d model --deploy-roles --deploy-role-members --force --
 | Avoid `LOOKUPVALUE` in RLS filters; propagate via relationships | `LOOKUPVALUE` in a security filter runs in the formula engine on every query and blocks storage-engine caching |
 | Do not rely on `USERELATIONSHIP`/`CROSSFILTER` to override an RLS-carrying relationship; relocate the filter | RLS propagates only through active relationships, and the engine blocks `USERELATIONSHIP` on an RLS-carrying relationship; `TREATAS` workarounds need explicit semantic review |
 | Set object-level security with `te`: per-role `metadataPermission` on a table or column (`= None` hides both the data and the object name). Use `te script` for TOM-level access if the property is not directly settable | DAX security targets tables and columns, not measures, so hiding a measure needs a sentinel-table workaround. Confirm the property name with `te set <obj> -q` before scripting it |
-| Run BPA as a governance gate (Microsoft Analysis Services rule set as baseline + org rules); remember BPA detects whether roles exist, not whether they are correct | `te bpa run` loads rules from a URL and gates deploy on error-severity violations | 
+| Run BPA as a governance gate (Microsoft Analysis Services rule set as baseline + org rules); remember BPA detects whether roles exist, not whether they are correct | `te bpa run` loads rules from a URL and gates deploy on error-severity violations |
 
 ```bash
 te bpa run --rules https://raw.githubusercontent.com/microsoft/Analysis-Services/master/BestPracticeRules/BPARules.json --fail-on error --ci github -m ./model
